@@ -39,7 +39,10 @@ def setup_sidebar():
         
         if openai_api_key:
             st.session_state.openai_api_key = openai_api_key
-            os.environ["OPENAI_API_KEY"] = openai_api_key
+            os.environ["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"] = openai_api_key
+            st.success("✅ API key set successfully!")
+        else:
+            st.warning("⚠️ Please enter your OpenAI API key to start chatting.")
         
         st.divider()
         
