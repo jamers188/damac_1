@@ -1,57 +1,60 @@
 import streamlit as st
+import os
 
 # Page configuration
 st.set_page_config(
     page_title="Property Information Chatbot",
     page_icon="🏢",
-    layout="wide"
+    layout="centered"
 )
 
-# Main app
-st.title("🏢 Property Information Chatbot")
+def main():
+    st.title("🏢 Property Information Chatbot")
+    
+    st.markdown("""
+    ## Welcome to the Property Information Chatbot
+    
+    This application lets you chat with property documents to get instant information.
+    
+    ### Choose an option:
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("👤 User Mode", use_container_width=True):
+            import simplified_user
+            streamlit_dir = os.path.dirname(st.__file__)
+            import_path = os.path.join(streamlit_dir, "simplified_user.py")
+            if os.path.exists("simplified_user.py"):
+                st.switch_page("simplified_user.py")
+            else:
+                st.error("User page not found. Please ensure simplified_user.py exists.")
+    
+    with col2:
+        if st.button("🔐 Admin Mode", use_container_width=True):
+            import simplified_admin
+            streamlit_dir = os.path.dirname(st.__file__)
+            import_path = os.path.join(streamlit_dir, "simplified_admin.py")
+            if os.path.exists("simplified_admin.py"):
+                st.switch_page("simplified_admin.py")
+            else:
+                st.error("Admin page not found. Please ensure simplified_admin.py exists.")
+    
+    st.markdown("""
+    ### About
+    
+    This chatbot is designed to help you find information about real estate properties quickly and easily:
+    
+    - **User Mode**: Ask questions about property listings
+    - **Admin Mode**: Upload and manage property documents
+    
+    Get started by selecting a mode above.
+    """)
+    
+    # Footer
+    st.divider()
+    st.caption("© 2025 Property Information Chatbot | Powered by AI")
 
-st.markdown("""
-## Welcome to the Property Information Chatbot
-
-This application allows you to chat with your real estate property documents.
-
-### Available Options:
-
-1. **User Chat** - Ask questions about property listings, including details on locations, unit types, prices, and amenities
-2. **Admin Portal** - For administrators to manage PDF documents and system settings
-
-Select an option below to get started:
-""")
-
-# Create two columns for the buttons
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("📱 User Chat", use_container_width=True):
-        st.switch_page("pages/user.py")
-
-with col2:
-    if st.button("🔐 Admin Portal", use_container_width=True):
-        st.switch_page("pages/admin.py")
-
-# Information section
-st.markdown("""
----
-
-### About this Application
-
-This chatbot is designed to answer questions about real estate property listings by analyzing uploaded PDF documents. It uses AI to understand your questions and provide accurate, relevant information about properties.
-
-#### Features:
-
-- Chat with property documents to get instant answers
-- Ask about unit types, prices, payment plans, amenities, and more
-- Explore multiple property listings in a conversational interface
-- Get accurate information without having to manually search through documents
-
-**Note:** Administrators can upload and manage PDF documents through the Admin Portal.
-""")
-
-# Footer
-st.markdown("---")
-st.caption("© 2025 Property Information Chatbot | Powered by AI")
+if __name__ == "__main__":
+    main()
