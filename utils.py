@@ -1,11 +1,12 @@
 import os
 import json
 import hashlib
+import pickle
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain_openai import ChatOpenAI
@@ -64,7 +65,7 @@ def save_pdf(uploaded_file, pdf_name, description):
     config["pdfs"][pdf_name] = {
         "path": file_path,
         "description": description,
-        "vectorstore": os.path.join(VECTOR_DIR, pdf_name)
+        "vectorstore": os.path.join(VECTOR_DIR, f"{pdf_name}.pkl")
     }
     config["active_pdf"] = pdf_name
     save_config(config)
@@ -93,44 +94,66 @@ def create_vectorstore(text, pdf_name):
         st.error("Could not extract text from PDF. Please check if the PDF contains selectable text.")
         return None
     
-    # Create embeddings and store in vector database
-    embeddings = OpenAIEmbeddings()
-    vectorstore_path = os.path.join(VECTOR_DIR, pdf_name)
+    # Check for API key
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        st.error("OpenAI API key is required. Please provide it in the sidebar.")
+        return None
     
-    # Create and persist the vectorstore
-    vectorstore = Chroma.from_texts(
-        chunks, 
-        embeddings, 
-        persist_directory=vectorstore_path
-    )
-    vectorstore.persist()
-    
-    return vectorstore_path
+    try:
+        # Create embeddings
+        embeddings = OpenAIEmbeddings(api_key=api_key)
+        
+        # Create FAISS vector store
+        vectorstore = FAISS.from_texts(chunks, embeddings)
+        
+        # Save vector store
+        vectorstore_path = os.path.join(VECTOR_DIR, f"{pdf_name}.pkl")
+        with open(vectorstore_path, "wb") as f:
+            pickle.dump(vectorstore, f)
+        
+        return vectorstore_path
+    except Exception as e:
+        st.error(f"Error creating vector store: {str(e)}")
+        return None
 
 def setup_conversation_chain(vectorstore_path):
     """Set up the conversation chain for a PDF."""
-    # Load the vector store
-    embeddings = OpenAIEmbeddings()
-    vectorstore = Chroma(persist_directory=vectorstore_path, embedding_function=embeddings)
+    # Check for API key
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        st.error("OpenAI API key is required. Please provide it in the sidebar.")
+        return None
     
-    # Create language model
-    llm = ChatOpenAI(temperature=0.2, model="gpt-3.5-turbo")
-    
-    # Create memory
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
-    )
-    
-    # Create conversation chain
-    conversation_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
-        memory=memory,
-        verbose=True
-    )
-    
-    return conversation_chain
+    try:
+        # Load vector store
+        if not os.path.exists(vectorstore_path):
+            st.error(f"Vector store not found at {vectorstore_path}")
+            return None
+        
+        with open(vectorstore_path, "rb") as f:
+            vectorstore = pickle.load(f)
+        
+        # Create language model
+        llm = ChatOpenAI(temperature=0.2, model="gpt-3.5-turbo", api_key=api_key)
+        
+        # Create memory
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            return_messages=True
+        )
+        
+        # Create conversation chain
+        conversation_chain = ConversationalRetrievalChain.from_llm(
+            llm=llm,
+            retriever=vectorstore.as_retriever(search_kwargs={"k": 5}),
+            memory=memory
+        )
+        
+        return conversation_chain
+    except Exception as e:
+        st.error(f"Error setting up conversation chain: {str(e)}")
+        return None
 
 def process_pdf(pdf_name):
     """Process a PDF file and create a vector store."""
@@ -141,20 +164,29 @@ def process_pdf(pdf_name):
         st.error(f"PDF '{pdf_name}' not found in configuration.")
         return False
     
-    # Extract text from PDF
-    pdf_text = extract_text_from_pdf(pdf_info["path"])
-    
-    # Create vector store
-    vectorstore_path = create_vectorstore(pdf_text, pdf_name)
-    
-    if not vectorstore_path:
+    # Check for API key
+    if not os.environ.get("OPENAI_API_KEY"):
+        st.error("OpenAI API key is required to process PDFs. Please provide it in the sidebar.")
         return False
     
-    # Update config with vectorstore path
-    config["pdfs"][pdf_name]["vectorstore"] = vectorstore_path
-    save_config(config)
-    
-    return True
+    try:
+        # Extract text from PDF
+        pdf_text = extract_text_from_pdf(pdf_info["path"])
+        
+        # Create vector store
+        vectorstore_path = create_vectorstore(pdf_text, pdf_name)
+        
+        if not vectorstore_path:
+            return False
+        
+        # Update config with vectorstore path
+        config["pdfs"][pdf_name]["vectorstore"] = vectorstore_path
+        save_config(config)
+        
+        return True
+    except Exception as e:
+        st.error(f"Error processing PDF: {str(e)}")
+        return False
 
 def get_all_pdfs():
     """Get all available PDFs."""
@@ -192,8 +224,7 @@ def delete_pdf(pdf_name):
     # Delete vector store
     vectorstore_path = config["pdfs"][pdf_name]["vectorstore"]
     if os.path.exists(vectorstore_path):
-        import shutil
-        shutil.rmtree(vectorstore_path)
+        os.remove(vectorstore_path)
     
     # Update config
     del config["pdfs"][pdf_name]
