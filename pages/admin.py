@@ -15,6 +15,10 @@ st.set_page_config(
 # Initialize session state
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
+    
+# Initialize OpenAI API key
+if "openai_api_key" not in st.session_state:
+    st.session_state.openai_api_key = None
 
 def login_form():
     """Display the admin login form."""
@@ -40,6 +44,21 @@ def admin_dashboard():
     # Sidebar for navigation
     with st.sidebar:
         st.title("Admin Controls")
+        
+        # OpenAI API key input
+        openai_api_key = st.text_input(
+            "OpenAI API Key:", 
+            type="password",
+            help="Enter your OpenAI API key to process PDFs",
+            value=st.session_state.openai_api_key or ""
+        )
+        
+        if openai_api_key:
+            st.session_state.openai_api_key = openai_api_key
+            os.environ["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"] = openai_api_key
+        
+        st.divider()
+        
         page = st.radio(
             "Select a page:",
             ["Upload PDF", "Manage PDFs", "Change Password", "Logout"]
@@ -83,11 +102,15 @@ def upload_pdf_page():
                 
                 # Process the PDF if requested
                 if process:
-                    with st.spinner("Processing PDF... This may take a few minutes."):
-                        if process_pdf(pdf_name):
-                            st.success(f"PDF '{pdf_name}' processed successfully!")
-                        else:
-                            st.error("Error processing PDF. Please check the file format.")
+                    # Check if API key is available
+                    if not st.session_state.openai_api_key:
+                        st.warning("⚠️ OpenAI API key not provided. Please enter your API key in the sidebar to process the PDF.")
+                    else:
+                        with st.spinner("Processing PDF... This may take a few minutes."):
+                            if process_pdf(pdf_name):
+                                st.success(f"PDF '{pdf_name}' processed successfully!")
+                            else:
+                                st.error("Error processing PDF. Please check the file format.")
             except Exception as e:
                 st.error(f"Error uploading PDF: {str(e)}")
 
@@ -126,12 +149,16 @@ def manage_pdfs_page():
             else:
                 st.warning("Not processed")
                 if st.button(f"Process {pdf_name}", key=f"process_{pdf_name}"):
-                    with st.spinner(f"Processing {pdf_name}..."):
-                        if process_pdf(pdf_name):
-                            st.success(f"PDF '{pdf_name}' processed successfully!")
-                            st.experimental_rerun()
-                        else:
-                            st.error("Error processing PDF.")
+                    # Check if API key is available
+                    if not st.session_state.openai_api_key:
+                        st.warning("⚠️ OpenAI API key not provided. Please enter your API key in the sidebar to process the PDF.")
+                    else:
+                        with st.spinner(f"Processing {pdf_name}..."):
+                            if process_pdf(pdf_name):
+                                st.success(f"PDF '{pdf_name}' processed successfully!")
+                                st.experimental_rerun()
+                            else:
+                                st.error("Error processing PDF.")
         
         # Set Active
         with col3:
