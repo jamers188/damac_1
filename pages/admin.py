@@ -1,8 +1,8 @@
 import os
 import streamlit as st
 from utils import (
-    load_config, verify_password, save_pdf, process_pdf, 
-    get_all_pdfs, set_active_pdf, delete_pdf, change_admin_password
+    load_config, save_config, verify_password, hash_password,
+    save_pdf, process_pdf, get_all_pdfs, delete_pdf
 )
 
 # Page configuration
@@ -15,17 +15,17 @@ st.set_page_config(
 # Initialize session state
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
-    
+
 # Initialize OpenAI API key
 if "openai_api_key" not in st.session_state:
     st.session_state.openai_api_key = None
 
 def login_form():
-    """Display the admin login form."""
     st.title("Admin Login 🔐")
     
     with st.form("login_form"):
-        password = st.text_input("Enter admin password:", type="password")
+        password = st.text_input("Enter admin password:", type="password", 
+                                help="Default password is 'admin'")
         submit = st.form_submit_button("Login")
         
         if submit:
@@ -37,176 +37,144 @@ def login_form():
             else:
                 st.error("Incorrect password. Please try again.")
 
-def admin_dashboard():
-    """Display the admin dashboard."""
-    st.title("PDF Chatbot Admin Dashboard 📊")
+def admin_panel():
+    st.title("PDF Chatbot Admin Panel 📊")
     
-    # Sidebar for navigation
+    # Sidebar with API key input
     with st.sidebar:
-        st.title("Admin Controls")
-        
-        # OpenAI API key input
-        openai_api_key = st.text_input(
+        st.title("Settings")
+        api_key = st.text_input(
             "OpenAI API Key:", 
             type="password",
-            help="Enter your OpenAI API key to process PDFs",
-            value=st.session_state.openai_api_key or ""
+            value=st.session_state.openai_api_key or "",
+            help="Required for processing PDFs"
         )
         
-        if openai_api_key:
-            st.session_state.openai_api_key = openai_api_key
-            os.environ["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"] = openai_api_key
-        
-        st.divider()
-        
-        page = st.radio(
-            "Select a page:",
-            ["Upload PDF", "Manage PDFs", "Change Password", "Logout"]
-        )
+        if api_key:
+            st.session_state.openai_api_key = api_key
+            os.environ["OPENAI_API_KEY"] = api_key
+            st.success("✅ API key set")
+        else:
+            st.warning("⚠️ API key required")
         
         if st.button("Logout"):
             st.session_state.admin_authenticated = False
             st.experimental_rerun()
     
-    if page == "Upload PDF":
-        upload_pdf_page()
-    elif page == "Manage PDFs":
-        manage_pdfs_page()
-    elif page == "Change Password":
-        change_password_page()
-
-def upload_pdf_page():
-    """Display the upload PDF page."""
-    st.header("Upload New PDF 📄")
+    # Main panel with tabs
+    tab1, tab2, tab3 = st.tabs(["Upload PDF", "Manage PDFs", "Change Password"])
     
-    with st.form("upload_form"):
-        pdf_name = st.text_input("PDF Name (no spaces):", help="This will be used as the identifier for the PDF")
-        description = st.text_area("Description:", help="Brief description of what this PDF contains")
-        uploaded_file = st.file_uploader("Upload PDF file:", type="pdf")
-        process = st.checkbox("Process PDF after upload", value=True, help="Create vector embeddings for chatbot functionality")
+    # Tab 1: Upload PDF
+    with tab1:
+        st.header("Upload New PDF")
         
-        submit = st.form_submit_button("Upload PDF")
-        
-        if submit:
-            if not pdf_name or not uploaded_file:
-                st.error("Please provide a name and upload a PDF file.")
-                return
+        with st.form("upload_form"):
+            pdf_name = st.text_input("PDF Name (no spaces):", 
+                                   help="This will be used as identifier")
+            description = st.text_area("Description:", 
+                                     help="Brief description of the document")
+            uploaded_file = st.file_uploader("Upload PDF:", type="pdf")
+            process = st.checkbox("Process after upload", value=True, 
+                                help="Create AI embeddings for the document")
             
-            # Sanitize PDF name
-            pdf_name = pdf_name.replace(" ", "_").lower()
+            submit = st.form_submit_button("Upload PDF")
             
-            # Save the PDF
-            try:
-                file_path = save_pdf(uploaded_file, pdf_name, description)
-                st.success(f"PDF '{pdf_name}' uploaded successfully!")
+            if submit:
+                if not pdf_name or not uploaded_file:
+                    st.error("Please provide a name and upload a PDF file.")
+                    return
                 
-                # Process the PDF if requested
-                if process:
-                    # Check if API key is available
-                    if not st.session_state.openai_api_key:
-                        st.warning("⚠️ OpenAI API key not provided. Please enter your API key in the sidebar to process the PDF.")
-                    else:
+                if not st.session_state.openai_api_key and process:
+                    st.error("OpenAI API key is required to process the PDF.")
+                    return
+                
+                # Clean name
+                pdf_name = pdf_name.replace(" ", "_").lower()
+                
+                try:
+                    # Save PDF
+                    file_path = save_pdf(uploaded_file, pdf_name, description)
+                    st.success(f"PDF '{pdf_name}' uploaded successfully!")
+                    
+                    # Process if requested
+                    if process:
                         with st.spinner("Processing PDF... This may take a few minutes."):
                             if process_pdf(pdf_name):
                                 st.success(f"PDF '{pdf_name}' processed successfully!")
                             else:
-                                st.error("Error processing PDF. Please check the file format.")
-            except Exception as e:
-                st.error(f"Error uploading PDF: {str(e)}")
-
-def manage_pdfs_page():
-    """Display the manage PDFs page."""
-    st.header("Manage PDFs 📚")
+                                st.error("Error processing PDF. Please check the logs.")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
     
-    pdfs = get_all_pdfs()
-    
-    if not pdfs:
-        st.info("No PDFs uploaded yet. Go to 'Upload PDF' to add documents.")
-        return
-    
-    # Display all PDFs in a table
-    st.subheader("Available PDFs")
-    
-    # Create three columns
-    cols = st.columns([3, 1, 1, 1])
-    cols[0].write("**PDF Name**")
-    cols[1].write("**Status**")
-    cols[2].write("**Set Active**")
-    cols[3].write("**Delete**")
-    
-    for pdf_name, pdf_info in pdfs.items():
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+    # Tab 2: Manage PDFs
+    with tab2:
+        st.header("Manage PDFs")
         
-        # PDF info
-        with col1:
-            st.write(f"**{pdf_name}**")
-            st.caption(pdf_info.get("description", "No description"))
+        pdfs = get_all_pdfs()
+        if not pdfs:
+            st.info("No PDFs uploaded yet.")
+            return
         
-        # Status
-        with col2:
-            if os.path.exists(pdf_info.get("vectorstore", "")):
-                st.success("Processed")
-            else:
-                st.warning("Not processed")
-                if st.button(f"Process {pdf_name}", key=f"process_{pdf_name}"):
-                    # Check if API key is available
-                    if not st.session_state.openai_api_key:
-                        st.warning("⚠️ OpenAI API key not provided. Please enter your API key in the sidebar to process the PDF.")
+        for pdf_name, pdf_info in pdfs.items():
+            with st.expander(f"📄 {pdf_name}"):
+                st.write(f"**Description:** {pdf_info.get('description', 'No description')}")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Status
+                    if os.path.exists(pdf_info.get("vectorstore", "")):
+                        st.success("Status: Processed ✅")
                     else:
-                        with st.spinner(f"Processing {pdf_name}..."):
-                            if process_pdf(pdf_name):
-                                st.success(f"PDF '{pdf_name}' processed successfully!")
-                                st.experimental_rerun()
+                        st.warning("Status: Not processed ⚠️")
+                        if st.button(f"Process now", key=f"process_{pdf_name}"):
+                            if not st.session_state.openai_api_key:
+                                st.error("OpenAI API key required!")
                             else:
-                                st.error("Error processing PDF.")
-        
-        # Set Active
-        with col3:
-            if st.button("Set Active", key=f"active_{pdf_name}"):
-                if set_active_pdf(pdf_name):
-                    st.success(f"'{pdf_name}' set as active PDF.")
-                    st.experimental_rerun()
-        
-        # Delete
-        with col4:
-            if st.button("Delete", key=f"delete_{pdf_name}"):
-                if delete_pdf(pdf_name):
-                    st.success(f"PDF '{pdf_name}' deleted successfully.")
-                    st.experimental_rerun()
-                else:
-                    st.error(f"Error deleting PDF '{pdf_name}'.")
-
-def change_password_page():
-    """Display the change password page."""
-    st.header("Change Admin Password 🔑")
+                                with st.spinner(f"Processing {pdf_name}..."):
+                                    if process_pdf(pdf_name):
+                                        st.success("Processed successfully!")
+                                        st.experimental_rerun()
+                                    else:
+                                        st.error("Processing failed.")
+                with col2:
+                    # Delete
+                    if st.button(f"Delete PDF", key=f"delete_{pdf_name}"):
+                        if delete_pdf(pdf_name):
+                            st.success(f"PDF '{pdf_name}' deleted.")
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"Error deleting PDF.")
     
-    with st.form("change_password_form"):
-        new_password = st.text_input("New Password:", type="password")
-        confirm_password = st.text_input("Confirm Password:", type="password")
+    # Tab 3: Change Password
+    with tab3:
+        st.header("Change Admin Password")
         
-        submit = st.form_submit_button("Change Password")
-        
-        if submit:
-            if not new_password:
-                st.error("Please enter a password.")
-                return
+        with st.form("password_form"):
+            new_password = st.text_input("New Password:", type="password")
+            confirm_password = st.text_input("Confirm Password:", type="password")
             
-            if new_password != confirm_password:
-                st.error("Passwords do not match.")
-                return
+            submit = st.form_submit_button("Change Password")
             
-            try:
-                change_admin_password(new_password)
-                st.success("Password changed successfully!")
-            except Exception as e:
-                st.error(f"Error changing password: {str(e)}")
+            if submit:
+                if not new_password:
+                    st.error("Please enter a password.")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    try:
+                        config = load_config()
+                        config["admin_password"] = hash_password(new_password)
+                        save_config(config)
+                        st.success("Password changed successfully!")
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
 
-# Main app logic
 def main():
     if not st.session_state.admin_authenticated:
         login_form()
     else:
-        admin_dashboard()
+        admin_panel()
 
 if __name__ == "__main__":
     main()
